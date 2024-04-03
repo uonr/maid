@@ -1,20 +1,14 @@
-[tool.poetry]
-name = "maid"
-version = "0.1.0"
-description = "Helps me organize"
-authors = ["uonr <dev@yuru.me>"]
-readme = "README.md"
-
-[tool.poetry.dependencies]
-python = "^3.11"
-watchdog = "^3.0.0"
-pillow = "^10.1.0"
-
-[tool.poetry.scripts]
-maid = "maid:main"
-
-
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = [ "setuptools" ]
+build-backend = "setuptools.build_meta"
 
+[project]
+name = "maid"
+description = "Helps me organize"
+version = "1.0.0"
+dependencies = [
+    "pillow",
+    "watchdog",
+]
+[project.scripts]
+maid = "maid:main"
