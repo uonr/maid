@@ -4,18 +4,30 @@ import logging
 import hashlib
 import time
 import shutil
+import hashlib
 from PIL import Image
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
+def is_nonsense_name(name):
+    return name.startswith('下载')
+
 def process_image(image_path):
     image = Image.open(image_path)
     image.load()
-    if image.info.get('Software', '') == 'NovelAI' or image.info.get('parameters', None) is not None:
+    is_novel_ai = image.info.get('Software', '') == 'NovelAI'
+    if is_novel_ai or image.info.get('parameters', None) is not None:
         destination_dir = os.path.expanduser('~/Desktop/AI')
         if not os.path.exists(destination_dir):
             os.makedirs(destination_dir)
-        destination_path = os.path.join(destination_dir, os.path.basename(image_path))
+        destination_name = os.path.basename(image_path)
+        if is_nonsense_name:
+            ext = os.path.splitext(destination_name)[1]
+            image_hash = hashlib.sha256(image.tobytes()).hexdigest()
+            destination_name = "{}{}".format(image_hash[:32], ext)
+            if is_novel_ai:
+                destination_name = "NovelAI_{}".format(destination_name)
+        destination_path = os.path.join(destination_dir, destination_name)
         if os.path.exists(destination_path):
             # check if the file is the same by hash
             with open(image_path, 'rb') as f:
