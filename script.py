@@ -15,6 +15,8 @@ TARGET_DIRS = {
     "pixiv.net": Path.home() / "Downloads" / "Illustration"
 }
 
+DOWNLOADING_EXTENSIONS = {'.download', '.tmp', '.part', '.crdownload', '.partial'}
+
 def get_file_download_source(file_path) -> list[str]:
     """Get file download source by mdls"""
     try:
@@ -91,6 +93,31 @@ def remove_empty_target_dirs():
         if not any(dir_path.iterdir()):
             dir_path.rmdir()
 
+def is_file_downloading(file_path) -> bool:
+    if file_path.suffix.lower() in DOWNLOADING_EXTENSIONS:
+        return True
+
+    # Check if file was modified in the last 30 seconds
+    try:
+        file_stat = file_path.stat()
+        current_time = time.time()
+        if current_time - file_stat.st_mtime < 30:
+            return True
+    except OSError:
+        return True
+    
+    # Check if file can be exclusively opened
+    try:
+        with open(file_path, 'rb+') as f:
+            import fcntl
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            return False
+    except (OSError, IOError, ImportError):
+        return True
+    
+    return False
+
 def scan_downloads():
     if not DOWNLOADS_DIR.exists():
         print(f"Downloads directory does not exist: {DOWNLOADS_DIR}")
@@ -98,12 +125,17 @@ def scan_downloads():
     
     files_processed = 0
     files_moved = 0
+    files_skipped = 0
     
     for file_path in DOWNLOADS_DIR.iterdir():
         if not file_path.is_file():
             continue
         
         if file_path.name.startswith('.'):
+            continue
+        
+        if is_file_downloading(file_path):
+            files_skipped += 1
             continue
             
         files_processed += 1
@@ -116,8 +148,8 @@ def scan_downloads():
         else:
             pass
     
-    if files_processed > 0:
-        print(f"Scanned {files_processed} files, moved {files_moved} files")
+    if files_processed > 0 or files_skipped > 0:
+        print(f"Scanned {files_processed} files, moved {files_moved} files, skipped {files_skipped} files")
 
 def main():
     try:
