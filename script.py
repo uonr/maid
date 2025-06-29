@@ -4,6 +4,7 @@ import time
 import subprocess
 import hashlib
 import shutil
+import re
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -12,7 +13,9 @@ TARGET_DIRS = {
     "novelai.net": Path.home() / "Downloads" / "AI",
     "iwara.tv": Path.home() / "Downloads" / "Iwara",
     "gelbooru.com": Path.home() / "Downloads" / "Illustration", 
-    "pixiv.net": Path.home() / "Downloads" / "Illustration"
+    "pixiv.net": Path.home() / "Downloads" / "Illustration",
+    "twimg.com": Path.home() / "Downloads" / "Twitter",
+    "x.com": Path.home() / "Downloads" / "Twitter"
 }
 
 DOWNLOADING_EXTENSIONS = {'.download', '.tmp', '.part', '.crdownload', '.partial'}
@@ -51,16 +54,42 @@ def get_domain_from_url(url) -> str:
     except Exception:
         return ""
 
-def move_file_by_domain(file_path, source_url):
-    domain = get_domain_from_url(source_url)
-    if not domain:
+def parse_twitter_url(url: str) -> tuple[str, str, str] | None:
+    """Parse Twitter/X.com URL and extract username, status ID, and photo number
+    
+    Args:
+        url: Twitter URL like https://x.com/username/status/1234567890/photo/1
+        
+    Returns:
+        Tuple of (username, status_id, photo_number) or None if not a valid Twitter URL
+    """
+    pattern = r'https?://(?:twitter\.com|x\.com)/([^/]+)/status/(\d+)(?:/photo/(\d+))?'
+    match = re.match(pattern, url)
+    
+    if match:
+        username = match.group(1)
+        status_id = match.group(2)
+        photo_number = match.group(3) or "1"  # Default to 1 if photo number not specified
+        return username, status_id, photo_number
+    
+    return None
+
+def generate_twitter_filename(original_filename: str, username: str, status_id: str, photo_number: str) -> str:
+    file_path = Path(original_filename)
+    extension = file_path.suffix
+    return f"[{username}][{status_id}][{photo_number}]{extension}"
+
+def move_file_by_domain(file_path, source_urls: list[str]):
+    domains = list(set(get_domain_from_url(url) for url in source_urls))
+    if not domains:
         return False
     
     target_dir = None
-    for rule_domain, rule_dir in TARGET_DIRS.items():
-        if domain.endswith(rule_domain):
-            target_dir = rule_dir
-            break
+    for domain in domains:
+        for rule_domain, rule_dir in TARGET_DIRS.items():
+            if domain.endswith(rule_domain):
+                target_dir = rule_dir
+                break
     
     if not target_dir:
         return False
@@ -68,15 +97,41 @@ def move_file_by_domain(file_path, source_url):
     target_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        target_file = target_dir / file_path.name
+        # Check if this is a Twitter/X.com URL that needs special filename handling
+        twitter_info = None
+        if target_dir.name == "Twitter":
+            for source_url in source_urls:
+                twitter_info = parse_twitter_url(source_url)
+                if twitter_info:
+                    break
         
+        # Determine the target filename
+        if twitter_info:
+            username, status_id, photo_number = twitter_info
+            new_filename = generate_twitter_filename(file_path.name, username, status_id, photo_number)
+            target_file = target_dir / new_filename
+            print(f"Renaming Twitter file to: {new_filename}")
+        else:
+            target_file = target_dir / file_path.name
+        
+        # Handle file conflicts by comparing content hash
         while target_file.exists():
-            # Compare file content hash
             file_hash = hashlib.md5(file_path.read_bytes()).hexdigest()
             target_hash = hashlib.md5(target_file.read_bytes()).hexdigest()
             if file_hash == target_hash:
-                break
-            target_file = target_dir / f"{file_path.stem}_{file_hash}{file_path.suffix}"
+                # Files are identical, remove the source file
+                file_path.unlink()
+                print(f"Removed duplicate file {file_path.name}")
+                return True
+            
+            # Files are different, append hash to filename
+            if twitter_info:
+                username, status_id, photo_number = twitter_info
+                base_name = f"[{username}][{status_id}][{photo_number}]_{file_hash}"
+                extension = Path(file_path.name).suffix
+                target_file = target_dir / f"{base_name}{extension}"
+            else:
+                target_file = target_dir / f"{file_path.stem}_{file_hash}{file_path.suffix}"
         
         shutil.move(str(file_path), str(target_file))
         print(f"Moved file {file_path.name} to {target_file}")
@@ -141,12 +196,8 @@ def scan_downloads():
         files_processed += 1
         
         source_urls = get_file_download_source(file_path)
-        for source_url in source_urls:
-            if move_file_by_domain(file_path, source_url):
-                files_moved += 1
-                break
-        else:
-            pass
+        if move_file_by_domain(file_path, source_urls):
+            files_moved += 1
     
     if files_processed > 0 or files_skipped > 0:
         print(f"Scanned {files_processed} files, moved {files_moved} files, skipped {files_skipped} files")
